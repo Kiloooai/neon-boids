@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Boids</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            color: #0ff;
+            text-shadow: 0 0 5px #0ff;
+            cursor: crosshair;
+        }
+        canvas { display: block; }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(0,255,255,0.3);
+            backdrop-filter: blur(5px);
+            z-index: 100;
+            user-select: none;
+            width: 220px;
+        }
+        .controls h2 {
+            margin-bottom: 12px;
+            font-size: 16px;
+            color: #ff0;
+            text-shadow: 0 0 10px #ff0;
+        }
+        .control-group {
+            margin-bottom: 10px;
+        }
+        .control-group label {
+            display: block;
+            font-size: 10px;
+            color: #f0f;
+            margin-bottom: 4px;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #0ff;
+        }
+        .value-display {
+            float: right;
+            color: #fff;
+            font-weight: bold;
+            font-size: 11px;
+        }
+        .buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        button {
+            flex: 1;
+            padding: 8px;
+            background: transparent;
+            border: 1px solid #0ff;
+            color: #0ff;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: rgba(0,255,255,0.1);
+            box-shadow: 0 0 10px rgba(0,255,255,0.3);
+        }
+        .stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #0f0;
+            text-shadow: 0 0 8px #0f0;
+            font-size: 12px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(0,255,0,0.3);
+        }
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #888;
+            font-size: 12px;
+            text-align: center;
+            max-width: 500px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="controls">
+        <h2>🦢 NEON BOIDS</h2>
+
+        <div class="control-group">
+            <label>Boid Count <span class="value-display" id="countVal">150</span></label>
+            <input type="range" id="boidCount" min="20" max="500" value="150">
+        </div>
+
+        <div class="control-group">
+            <label>Perception Radius <span class="value-display" id="percepVal">50</span></label>
+            <input type="range" id="perception" min="20" max="150" value="50">
+        </div>
+
+        <div class="control-group">
+            <label>Separation Weight <span class="value-display" id="sepVal">1.5</span></label>
+            <input type="range" id="separation" min="0" max="3" step="0.1" value="1.5">
+        </div>
+
+        <div class="control-group">
+            <label>Alignment Weight <span class="value-display" id="alignVal">1.0</span></label>
+            <input type="range" id="alignment" min="0" max="3" step="0.1" value="1">
+        </div>
+
+        <div class="control-group">
+            <label>Cohesion Weight <span class="value-display" id="cohesionVal">1.0</span></label>
+            <input type="range" id="cohesion" min="0" max="3" step="0.1" value="1">
+        </div>
+
+        <div class="control-group">
+            <label>Max Speed <span class="value-display" id="speedVal">4</span></label>
+            <input type="range" id="maxSpeed" min="2" max="10" value="4">
+        </div>
+
+        <div class="control-group">
+            <label>Trail Length <span class="value-display" id="trailVal">10</span></label>
+            <input type="range" id="trailLength" min="0" max="30" value="10">
+        </div>
+
+        <div class="buttons">
+            <button id="pauseBtn">Pause</button>
+            <button id="randomBtn">Randomize</button>
+        </div>
+    </div>
+
+    <div class="stats">
+        <div>Boids: <span id="boidNum">0</span></div>
+        <div>FPS: <span id="fps">60</span></div>
+    </div>
+
+    <div class="instructions">
+        Boids follow three rules: separation (don't crowd), alignment (steer same direction), cohesion (stay together). Click to scatter them. Adjust weights to change flock behavior.
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Controls
+        const countSlider = document.getElementById('boidCount');
+        const percepSlider = document.getElementById('perception');
+        const sepSlider = document.getElementById('separation');
+        const alignSlider = document.getElementById('alignment');
+        const cohSlider = document.getElementById('cohesion');
+        const speedSlider = document.getElementById('maxSpeed');
+        const trailSlider = document.getElementById('trailLength');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const randomBtn = document.getElementById('randomBtn');
+
+        let width, height;
+        let boids = [];
+        let running = true;
+        let lastTime = 0;
+        let frameCount = 0;
+        let lastFpsTime = 0;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        class Boid {
+            constructor() {
+                this.pos = { x: Math.random() * width, y: Math.random() * height };
+                const angle = Math.random() * Math.PI * 2;
+                this.vel = { x: Math.cos(angle), y: Math.sin(angle) };
+                this.acc = { x: 0, y: 0 };
+                this.trail = [];
+                this.hue = Math.random() * 360;
+            }
+
+            update(params) {
+                // Apply forces
+                this.vel.x += this.acc.x;
+                this.vel.y += this.acc.y;
+
+                // Limit speed
+                const speed = Math.sqrt(this.vel.x**2 + this.vel.y**2);
+                if (speed > params.maxSpeed) {
+                    this.vel.x = (this.vel.x / speed) * params.maxSpeed;
+                    this.vel.y = (this.vel.y / speed) * params.maxSpeed;
+                }
+
+                // Update position
+                this.pos.x += this.vel.x;
+                this.pos.y += this.vel.y;
+
+                // Wrap toroidally
+                if (this.pos.x < 0) this.pos.x += width;
+                if (this.pos.x >= width) this.pos.x -= width;
+                if (this.pos.y < 0) this.pos.y += height;
+                if (this.pos.y >= height) this.pos.y -= height;
+
+                // Record trail
+                this.trail.push({x: this.pos.x, y: this.pos.y});
+                const trailLen = parseInt(trailSlider.value);
+                if (this.trail.length > trailLen) this.trail.shift();
+
+                // Reset acceleration
+                this.acc.x = 0;
+                this.acc.y = 0;
+            }
+
+            applyForce(fx, fy) {
+                this.acc.x += fx;
+                this.acc.y += fy;
+            }
+
+            // Boid rules
+            flock(boids, params) {
+                let sep = {x:0, y:0};
+                let ali = {x:0, y:0};
+                let coh = {x:0, y:0};
+                let total = 0;
+
+                for (let other of boids) {
+                    if (other === this) continue;
+                    const dx = this.pos.x - other.pos.x;
+                    const dy = this.pos.y - other.pos.y;
+                    const distSq = dx*dx + dy*dy;
+                    const percepSq = params.perception * params.perception;
+                    if (distSq > 0 && distSq < percepSq) {
+                        // Separation: steer away from nearby boids
+                        const dist = Math.sqrt(distSq);
+                        sep.x += dx / (dist + 0.1);
+                        sep.y += dy / (dist + 0.1);
+                        // Alignment: sum velocities
+                        ali.x += other.vel.x;
+                        ali.y += other.vel.y;
+                        // Cohesion: sum positions
+                        coh.x += other.pos.x;
+                        coh.y += other.pos.y;
+                        total++;
+                    }
+                }
+
+                if (total > 0) {
+                    // Separation
+                    sep.x = (sep.x / total) * params.separation;
+                    sep.y = (sep.y / total) * params.separation;
+                    // Alignment: average velocity, steer towards it
+                    ali.x = (ali.x / total) * params.alignment;
+                    ali.y = (ali.y / total) * params.alignment;
+                    // Cohesion: average position, steer towards it
+                    coh.x = (coh.x / total - this.pos.x) * params.cohesion;
+                    coh.y = (coh.y / total - this.pos.y) * params.cohesion;
+                }
+
+                this.applyForce(sep.x, sep.y);
+                this.applyForce(ali.x, ali.y);
+                this.applyForce(coh.x, coh.y);
+            }
+
+            draw(ctx) {
+                // Draw trail
+                const trailLen = this.trail.length;
+                if (trailLen > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    for (let i = 1; i < trailLen; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    ctx.strokeStyle = `hsla(${this.hue}, 100%, 60%, 0.3)`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // Draw boid body (triangle pointing velocity direction)
+                const angle = Math.atan2(this.vel.y, this.vel.x);
+                const size = 6;
+                ctx.save();
+                ctx.translate(this.pos.x, this.pos.y);
+                ctx.rotate(angle);
+                ctx.beginPath();
+                ctx.moveTo(size, 0);
+                ctx.lineTo(-size, -size/2);
+                ctx.lineTo(-size, size/2);
+                ctx.closePath();
+                ctx.fillStyle = `hsl(${this.hue}, 100%, 60%)`;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function initBoids(count) {
+            boids = [];
+            for (let i = 0; i < count; i++) {
+                boids.push(new Boid());
+            }
+        }
+
+        function adjustBoidCount(target) {
+            const current = boids.length;
+            if (target > current) {
+                for (let i = 0; i < target - current; i++) {
+                    boids.push(new Boid());
+                }
+            } else if (target < current) {
+                boids.splice(target);
+            }
+        }
+
+        function animate(timestamp) {
+            const delta = timestamp - lastTime || 16;
+            lastTime = timestamp;
+
+            frameCount++;
+            if (timestamp - lastFpsTime >= 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastFpsTime = timestamp;
+            }
+
+            if (running) {
+                // Fade background
+                ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                ctx.fillRect(0, 0, width, height);
+
+                const params = {
+                    perception: parseInt(percepSlider.value),
+                    separation: parseFloat(sepSlider.value),
+                    alignment: parseFloat(alignSlider.value),
+                    cohesion: parseFloat(cohSlider.value),
+                    maxSpeed: parseFloat(speedSlider.value)
+                };
+
+                // Flocking
+                for (let boid of boids) {
+                    boid.flock(boids, params);
+                }
+
+                // Update & draw
+                for (let boid of boids) {
+                    boid.update(params);
+                    boid.draw(ctx);
+                }
+
+                document.getElementById('boidNum').textContent = boids.length;
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        canvas.addEventListener('click', (e) => {
+            // Scatter boids away from click point
+            for (let boid of boids) {
+                const dx = boid.pos.x - e.clientX;
+                const dy = boid.pos.y - e.clientY;
+                const dist = Math.sqrt(dx*dx + dy*dy) + 0.1;
+                const force = 10;
+                boid.vel.x += (dx/dist) * force;
+                boid.vel.y += (dy/dist) * force;
+            }
+        });
+
+        // UI updates
+        function updateDisplays() {
+            document.getElementById('countVal').textContent = countSlider.value;
+            document.getElementById('percepVal').textContent = percepSlider.value;
+            document.getElementById('sepVal').textContent = sepSlider.value;
+            document.getElementById('alignVal').textContent = alignSlider.value;
+            document.getElementById('cohVal').textContent = cohSlider.value;
+            document.getElementById('speedVal').textContent = speedSlider.value;
+            document.getElementById('trailVal').textContent = trailSlider.value;
+        }
+
+        const sliders = [countSlider, percepSlider, sepSlider, alignSlider, cohSlider, speedSlider, trailSlider];
+        sliders.forEach(s => s.addEventListener('input', () => {
+            updateDisplays();
+            if (s === countSlider) adjustBoidCount(parseInt(s.value));
+        }));
+
+        pauseBtn.addEventListener('click', () => {
+            running = !running;
+            pauseBtn.textContent = running ? "Pause" : "Resume";
+            if (running) animate(0);
+        });
+
+        randomBtn.addEventListener('click', () => {
+            countSlider.value = Math.floor(20 + Math.random() * 480);
+            percepSlider.value = Math.floor(20 + Math.random() * 130);
+            sepSlider.value = (Math.random() * 3).toFixed(1);
+            alignSlider.value = (Math.random() * 3).toFixed(1);
+            cohSlider.value = (Math.random() * 3).toFixed(1);
+            speedSlider.value = Math.floor(2 + Math.random() * 8);
+            trailSlider.value = Math.floor(Math.random() * 30);
+            updateDisplays();
+            adjustBoidCount(parseInt(countSlider.value));
+        });
+
+        updateDisplays();
+        initBoids(parseInt(countSlider.value));
+        animate(0);
+    </script>
+</body>
+</html>
